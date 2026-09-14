@@ -10,8 +10,12 @@ An intelligent, batch video compression and storage optimization tool for phone 
 
 ## 🌟 Key Features
 
-- **High-Efficiency H.265 Encoding**: Encodes with `libx265` at a default Constant Rate Factor (**CRF 28**), matching the visual fidelity of x264 CRF 23 while cutting file sizes roughly in half.
-- **Apple & Windows Playback Compatibility**: Automatically applies `-tag:v hvc1`, enabling native hardware-accelerated playback in Apple QuickTime, iOS/macOS Photos, and Windows Media Player (preventing black-screen issues caused by `hev1` FourCC tags).
+- **High-Efficiency H.265 Encoding**: Encodes videos with `libx265` at a default Constant Rate Factor (**CRF 28**), matching the visual fidelity of x264 CRF 23 while cutting file sizes roughly in half.
+- **Picture (Image) Compression**: Compresses photos and pictures using FFmpeg:
+  - **JPEG (`.jpg`, `.jpeg`)**: High-quality compression using `-q:v` (default: `3`, customizable).
+  - **PNG (`.png`)**: Lossless optimization using `-pred mixed` and `-compression_level 9`.
+  - **WebP (`.webp`)**: Compressed using `libwebp` encoder.
+- **Apple & Windows Playback Compatibility**: Automatically applies `-tag:v hvc1` for videos, enabling native hardware-accelerated playback in Apple QuickTime, iOS/macOS Photos, and Windows Media Player (preventing black-screen issues caused by `hev1` FourCC tags).
 - **100% Metadata & Date Preservation**:
   - **Internal Tags**: Transfers all EXIF, QuickTime, GPS coordinates, camera model, and rotation tags via ExifTool.
   - **Filesystem Timestamps**: Preserves both **Date Created** and **Date Modified** on Windows, macOS, and Linux filesystems.
@@ -22,7 +26,7 @@ An intelligent, batch video compression and storage optimization tool for phone 
 - **Resumable SQLite State Tracking**:
   - Remembers processed files across sessions using SHA-256 hashing and file sizes.
   - Idempotent: Safely stop and resume large directory jobs anytime without recompressing unchanged files.
-- **Size Safety Guarantee**: If an output video ends up larger than the original, the output is discarded, keeping the original to avoid wasting storage.
+- **Size Safety Guarantee**: If an output file (video or photo) ends up larger than the original, the output is discarded, keeping the original to avoid wasting storage.
 - **Interactive Rich Progress UI**: Displays live file counts, percentage bars, elapsed time, estimated time of arrival (ETA), dynamic space saved, and an end-of-run summary table.
 
 ---
@@ -92,8 +96,14 @@ phone-media-reducer
 # Specify custom source and destination directories
 phone-media-reducer "D:\Photos & Videos\Phone" "D:\Compressed_Videos"
 
-# Customize CRF (lower = higher quality / larger size, default: 28)
-phone-media-reducer /path/to/source /path/to/dest --crf 26
+# Customize CRF for videos and quality scale for images
+phone-media-reducer /path/to/source /path/to/dest --crf 26 --image-quality 4
+
+# Process pictures only (skip videos)
+phone-media-reducer /path/to/source /path/to/dest --no-videos
+
+# Process videos only (skip pictures)
+phone-media-reducer /path/to/source /path/to/dest --no-images
 
 # Specify a custom SQLite database path
 phone-media-reducer /path/to/source /path/to/dest --db /path/to/tracker.db
@@ -106,9 +116,12 @@ phone-media-reducer /path/to/source /path/to/dest -q
 
 | Argument | Description | Default |
 | :--- | :--- | :--- |
-| `source` | Source directory containing `.mp4` files | `D:\Photos & Videos\Abhilash\Phone` |
+| `source` | Source directory containing media files | `D:\Photos & Videos\Abhilash\Phone` |
 | `dest` | Destination directory for compressed files | `D:\Compressed_Videos` |
-| `--crf` | Constant Rate Factor quality parameter | `28` |
+| `--crf` | Constant Rate Factor quality parameter for videos | `28` |
+| `--image-quality` | Quality scale for JPEG compression (`1-31`, lower is higher quality) | `3` |
+| `--no-videos` | Skip video compression and only process pictures | `False` |
+| `--no-images` | Skip picture compression and only process videos | `False` |
 | `--db` | Path to SQLite tracking database | `media_reducer.db` |
 | `-q`, `--quiet` | Run silently without interactive terminal progress | `False` |
 
@@ -122,11 +135,14 @@ You can import and integrate the reduction pipeline directly into your Python sc
 from pathlib import Path
 from phone_media_reducer import batch_compress_directory, MediaReducerPipeline
 
-# Simple one-line batch compression
+# Simple one-line batch compression for all media
 batch_compress_directory(
     source_dir=Path("/media/phone_backup"),
     output_dir=Path("/media/compressed"),
     target_crf=28,
+    image_quality=3,
+    include_videos=True,
+    include_images=True,
 )
 
 # Advanced usage with custom pipeline injection
@@ -192,16 +208,16 @@ Output:
 Name                              Stmts   Miss Branch BrPart  Cover
 -------------------------------------------------------------------
 phone_media_reducer\__init__.py       7      0      0      0   100%
-phone_media_reducer\cli.py           20      0      2      0   100%
+phone_media_reducer\cli.py           23      0      2      0   100%
 phone_media_reducer\db.py            46      0      4      0   100%
-phone_media_reducer\encoder.py       46      0     14      0   100%
+phone_media_reducer\encoder.py       67      0     20      0   100%
 phone_media_reducer\metadata.py       8      0      0      0   100%
-phone_media_reducer\pipeline.py      91      0     26      0   100%
+phone_media_reducer\pipeline.py     106      0     32      0   100%
 phone_media_reducer\progress.py      79      0     20      0   100%
 phone_media_reducer\utils.py          9      0      2      0   100%
 -------------------------------------------------------------------
-TOTAL                               306      0     68      0   100%
-============================= 28 passed in 2.61s ====================
+TOTAL                               345      0     80      0   100%
+============================= 37 passed in 3.87s ====================
 ```
 
 ---

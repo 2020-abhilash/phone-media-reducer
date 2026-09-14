@@ -2,6 +2,7 @@
 
 from phone_media_reducer.db import MediaTracker, get_record, init_db, save_record
 from phone_media_reducer.encoder import (
+    compress_image,
     compress_mp4,
     probe_codec_and_crf,
     should_skip_based_on_crf,
@@ -23,6 +24,7 @@ __all__ = [
     "NullProgressReporter",
     "RichProgressReporter",
     "batch_compress_directory",
+    "compress_image",
     "compress_mp4",
     "compute_file_hash",
     "copy_all_metadata",

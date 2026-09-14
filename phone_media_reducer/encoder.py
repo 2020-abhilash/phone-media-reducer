@@ -93,3 +93,41 @@ def should_skip_based_on_crf(
         return True
 
     return False
+
+
+def compress_image(
+    input_file: Union[str, Path],
+    output_file: Union[str, Path],
+    quality_scale: int = 3,
+) -> bool:
+    """Compresses an image file (JPEG, PNG, WebP) using FFmpeg, preserving timestamps."""
+    input_path = Path(input_file)
+    suffix = input_path.suffix.lower()
+
+    extra_args = {}
+    if suffix in (".jpg", ".jpeg"):
+        extra_args["q:v"] = quality_scale
+    elif suffix == ".png":
+        extra_args["pred"] = "mixed"
+        extra_args["compression_level"] = 9
+    elif suffix == ".webp":
+        extra_args["vcodec"] = "libwebp"
+        extra_args["quality"] = 80
+    else:
+        return False
+
+    try:
+        (
+            ffmpeg
+            .input(str(input_file))
+            .output(str(output_file), **extra_args)
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+        shutil.copystat(str(input_file), str(output_file))
+        return True
+    except ffmpeg.Error as e:
+        stderr_msg = e.stderr.decode("utf-8") if e.stderr else str(e)
+        print("FFMpeg Error: ", stderr_msg)
+        return False
+

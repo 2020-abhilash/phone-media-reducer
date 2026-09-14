@@ -40,6 +40,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable interactive progress bar and summary",
     )
+    parser.add_argument(
+        "--image-quality",
+        type=int,
+        default=3,
+        help="Image quality scale for JPEG compression (1-31, lower is higher quality, default: 3)",
+    )
+    parser.add_argument(
+        "--no-videos",
+        action="store_true",
+        help="Skip video files and only process pictures",
+    )
+    parser.add_argument(
+        "--no-images",
+        action="store_true",
+        help="Skip picture files and only process videos",
+    )
     return parser
 
 
@@ -51,6 +67,9 @@ def main(args: Optional[List[str]] = None) -> None:
         source_dir=parsed_args.source,
         output_dir=parsed_args.dest,
         target_crf=parsed_args.crf,
+        image_quality=parsed_args.image_quality,
+        include_videos=not parsed_args.no_videos,
+        include_images=not parsed_args.no_images,
         db_path=parsed_args.db,
         progress_reporter=reporter,
     )

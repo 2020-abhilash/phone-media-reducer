@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import ffmpeg
 
 from phone_media_reducer.encoder import (
+    compress_image,
     compress_mp4,
     probe_codec_and_crf,
     should_skip_based_on_crf,
@@ -161,3 +162,61 @@ def test_should_skip_based_on_crf():
     # None values
     assert should_skip_based_on_crf(None, 28.0, target_crf=28) is False
     assert should_skip_based_on_crf("hevc", None, target_crf=28) is False
+
+
+def test_compress_image_jpeg():
+    input_file = "source/photo.jpg"
+    output_file = "dest/photo.jpg"
+
+    mock_input = MagicMock()
+    mock_output = MagicMock()
+    mock_overwrite = MagicMock()
+
+    with patch("ffmpeg.input", return_value=mock_input) as mock_ffmpeg_input, \
+         patch("shutil.copystat") as mock_copystat:
+        mock_input.output.return_value = mock_output
+        mock_output.overwrite_output.return_value = mock_overwrite
+        mock_overwrite.run.return_value = (b"", b"")
+
+        result = compress_image(input_file, output_file, quality_scale=4)
+        assert result is True
+        mock_ffmpeg_input.assert_called_once_with(input_file)
+        mock_input.output.assert_called_once_with(output_file, **{"q:v": 4})
+        mock_copystat.assert_called_once_with(input_file, output_file)
+
+
+def test_compress_image_png_and_webp():
+    mock_input = MagicMock()
+    mock_output = MagicMock()
+    mock_overwrite = MagicMock()
+
+    with patch("ffmpeg.input", return_value=mock_input), \
+         patch("shutil.copystat"):
+        mock_input.output.return_value = mock_output
+        mock_output.overwrite_output.return_value = mock_overwrite
+        mock_overwrite.run.return_value = (b"", b"")
+
+        # PNG
+        assert compress_image("source/pic.png", "dest/pic.png") is True
+        mock_input.output.assert_called_with("dest/pic.png", pred="mixed", compression_level=9)
+
+        # WebP
+        assert compress_image("source/pic.webp", "dest/pic.webp") is True
+        mock_input.output.assert_called_with("dest/pic.webp", vcodec="libwebp", quality=80)
+
+
+def test_compress_image_unsupported_format():
+    assert compress_image("source/pic.bmp", "dest/pic.bmp") is False
+
+
+def test_compress_image_ffmpeg_error(capsys):
+    error_with_stderr = ffmpeg.Error(cmd="ffmpeg", stdout=b"", stderr=b"Image encoding error")
+    with patch("ffmpeg.input", side_effect=error_with_stderr):
+        assert compress_image("source/pic.jpg", "dest/pic.jpg") is False
+        captured = capsys.readouterr()
+        assert "FFMpeg Error:  Image encoding error" in captured.out
+
+    error_without_stderr = ffmpeg.Error(cmd="ffmpeg", stdout=b"", stderr=None)
+    with patch("ffmpeg.input", side_effect=error_without_stderr):
+        assert compress_image("source/pic.jpg", "dest/pic.jpg") is False
+
