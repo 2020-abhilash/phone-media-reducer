@@ -304,3 +304,185 @@ def test_pipeline_skip_source_crf(tmp_path, capsys):
     captured = capsys.readouterr()
     assert f"Skipping {input_file} as it is already compressed (hevc with CRF 28.0 >= threshold)." in captured.out
 
+
+def test_pipeline_image_compression_and_filtering(tmp_path):
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "dest"
+    db_path = tmp_path / "test.db"
+    source_dir.mkdir(parents=True)
+
+    img_jpg = source_dir / "photo.jpg"
+    img_jpg.write_bytes(b"x" * 200)
+
+    img_png = source_dir / "graphic.png"
+    img_png.write_bytes(b"x" * 150)
+
+    vid_mp4 = source_dir / "clip.mp4"
+    vid_mp4.write_bytes(b"x" * 500)
+
+    txt_file = source_dir / "notes.txt"
+    txt_file.write_bytes(b"ignore me")
+
+    def fake_video_compress(src, dest, crf):
+        Path(dest).write_bytes(b"x" * 250)
+        return True
+
+    def fake_image_compress(src, dest, quality):
+        Path(dest).write_bytes(b"x" * 100)
+        return True
+
+    mock_copier = MagicMock()
+
+    # 1. Process all (both videos and images)
+    with MediaTracker(db_path) as tracker:
+        pipeline = MediaReducerPipeline(
+            tracker=tracker,
+            compressor=fake_video_compress,
+            image_compressor=fake_image_compress,
+            metadata_copier=mock_copier,
+        )
+        pipeline.process_directory(
+            source_dir,
+            output_dir,
+            target_crf=28,
+            image_quality=4,
+            include_videos=True,
+            include_images=True,
+        )
+
+        assert (output_dir / "photo.jpg").exists()
+        assert (output_dir / "graphic.png").exists()
+        assert (output_dir / "clip.mp4").exists()
+        assert not (output_dir / "notes.txt").exists()
+
+        assert tracker.get_record("photo.jpg")["status"] == "compressed"
+        assert tracker.get_record("graphic.png")["status"] == "compressed"
+        assert tracker.get_record("clip.mp4")["status"] == "compressed"
+        assert tracker.get_record("notes.txt") is None
+
+    # 2. Filter: Only videos (include_images=False)
+    dest_vids = tmp_path / "dest_vids"
+    mock_img_compress = MagicMock()
+    with MediaTracker(tmp_path / "test_vids.db") as tracker:
+        pipeline = MediaReducerPipeline(
+            tracker=tracker,
+            compressor=fake_video_compress,
+            image_compressor=mock_img_compress,
+            metadata_copier=mock_copier,
+        )
+        pipeline.process_directory(
+            source_dir,
+            dest_vids,
+            include_videos=True,
+            include_images=False,
+        )
+        assert (dest_vids / "clip.mp4").exists()
+        assert not (dest_vids / "photo.jpg").exists()
+        assert not (dest_vids / "graphic.png").exists()
+        mock_img_compress.assert_not_called()
+
+    # 3. Filter: Only images (include_videos=False)
+    dest_imgs = tmp_path / "dest_imgs"
+    mock_vid_compress = MagicMock()
+    with MediaTracker(tmp_path / "test_imgs.db") as tracker:
+        pipeline = MediaReducerPipeline(
+            tracker=tracker,
+            compressor=mock_vid_compress,
+            image_compressor=fake_image_compress,
+            metadata_copier=mock_copier,
+        )
+        pipeline.process_directory(
+            source_dir,
+            dest_imgs,
+            include_videos=False,
+            include_images=True,
+        )
+        assert not (dest_imgs / "clip.mp4").exists()
+        assert (dest_imgs / "photo.jpg").exists()
+        assert (dest_imgs / "graphic.png").exists()
+        mock_vid_compress.assert_not_called()
+
+
+def test_pipeline_image_skipped_larger_and_failed(tmp_path):
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "dest"
+    db_path = tmp_path / "test.db"
+    source_dir.mkdir(parents=True)
+
+    img_large = source_dir / "large.jpg"
+    img_large.write_bytes(b"x" * 50)
+
+    img_fail = source_dir / "fail.png"
+    img_fail.write_bytes(b"x" * 50)
+
+    def fake_image_compress(src, dest, quality):
+        if "large.jpg" in str(src):
+            Path(dest).write_bytes(b"x" * 100)  # Larger than input!
+            return True
+        return False
+
+    with MediaTracker(db_path) as tracker:
+        pipeline = MediaReducerPipeline(
+            tracker=tracker,
+            image_compressor=fake_image_compress,
+        )
+        pipeline.process_directory(source_dir, output_dir, image_quality=3)
+
+        assert not (output_dir / "large.jpg").exists()
+        assert not (output_dir / "fail.png").exists()
+
+        rec_large = tracker.get_record("large.jpg")
+        assert rec_large["status"] == "skipped_larger"
+        assert rec_large["output_size"] == 100
+
+        rec_fail = tracker.get_record("fail.png")
+        assert rec_fail["status"] == "failed"
+        assert rec_fail["output_size"] is None
+
+
+def test_batch_compress_directory_with_custom_pipeline(tmp_path):
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "dest"
+    source_dir.mkdir(parents=True)
+
+    mock_pipeline = MagicMock()
+    batch_compress_directory(
+        source_dir,
+        output_dir,
+        target_crf=26,
+        image_quality=5,
+        include_videos=True,
+        include_images=False,
+        pipeline=mock_pipeline,
+    )
+    mock_pipeline.process_directory.assert_called_once_with(
+        source_dir,
+        output_dir,
+        target_crf=26,
+        image_quality=5,
+        include_videos=True,
+        include_images=False,
+    )
+
+
+def test_pipeline_compress_and_record_default_compress_fn(tmp_path):
+    output_dir = tmp_path / "dest"
+    output_dir.mkdir(parents=True)
+    db_path = tmp_path / "test.db"
+
+    input_file = tmp_path / "test.mp4"
+    input_file.write_bytes(b"source content")
+    out_file = output_dir / "test.mp4"
+
+    def default_compress(src, dst, param):
+        Path(dst).write_bytes(b"small")
+        return True
+
+    with MediaTracker(db_path) as tracker:
+        pipeline = MediaReducerPipeline(tracker=tracker, compressor=default_compress)
+        # Call _compress_and_record with compress_fn=None to test default branch
+        pipeline._compress_and_record(input_file, out_file, "test.mp4", 28, len(b"source content"), None)
+        rec = tracker.get_record("test.mp4")
+        assert rec["status"] == "compressed"
+
+
